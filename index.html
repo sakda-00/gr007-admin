@@ -56,8 +56,14 @@
         .btn-primary { background-color: var(--primary-color); width: 100%; padding: 0.8rem; border-radius: 8px; font-size: 1.05rem; }
         .btn-primary:hover { background-color: var(--primary-dark); }
         .btn-logout { background-color: #6c757d; font-size: 0.85rem; }
-        .btn-clear { background-color: #c62828; margin-bottom: 1.5rem; }
+        
+        .top-actions-container { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+        .btn-clear { background-color: #c62828; }
         .btn-clear:hover { background-color: #b71c1c; }
+        .btn-toggle-view { background-color: #0277bd; }
+        .btn-toggle-view:hover { background-color: #01579b; }
+        .btn-toggle-view.active { background-color: #2e7d32; }
+        .btn-toggle-view.active:hover { background-color: #1b5e20; }
 
         .admin-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; width: 100%; margin-top: 0.8rem; }
         .btn-act { padding: 0.55rem; font-size: 0.85rem; border-radius: 6px; text-align: center; }
@@ -69,12 +75,16 @@
         .queue-cards-container { display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem; }
         .queue-item-card { background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; position: relative; border-top: 4px solid var(--warning-color); }
         .queue-item-card.serving { border-top-color: var(--success-color); background-color: #f0fdf4; }
+        .queue-item-card.done { border-top-color: #64748b; background-color: #f1f5f9; opacity: 0.8; }
+        .queue-item-card.cancel { border-top-color: #cbd5e1; background-color: #f8fafc; opacity: 0.5; text-decoration: line-through; }
         
         .card-row-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #cbd5e1; padding-bottom: 0.5rem; margin-bottom: 0.5rem; }
         .card-q-num { font-size: 1.5rem; font-weight: 900; color: var(--primary-color); }
         .card-status-badge { padding: 0.2rem 0.5rem; font-size: 0.75rem; font-weight: bold; border-radius: 4px; color: white; }
         .badge-waiting { background-color: var(--warning-color); }
         .badge-serving { background-color: var(--success-color); }
+        .badge-done { background-color: #64748b; }
+        .badge-cancel { background-color: #94a3b8; }
         
         .card-details p { font-size: 0.9rem; color: #475569; margin-bottom: 0.2rem; }
         .card-details b { color: #0f172a; }
@@ -84,12 +94,14 @@
         th, td { padding: 0.85rem 1rem; border-bottom: 1px solid var(--border-color); }
         th { background-color: var(--dark-color); color: #fff; font-weight: 600; }
         tr.tr-serving { background-color: #f0fdf4; }
+        tr.tr-done { background-color: #f1f5f9; opacity: 0.8; }
+        tr.tr-cancel { background-color: #f8fafc; opacity: 0.5; text-decoration: line-through; }
 
         @media (min-width: 850px) {
             .queue-cards-container { display: none; }
             .table-responsive { display: block; }
             .admin-actions { display: flex; gap: 0.3rem; margin-top: 0; }
-            .btn-act { padding: 0.4rem 0.7 Market; font-size: 0.8rem; }
+            .btn-act { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
         }
     </style>
 </head>
@@ -112,10 +124,13 @@
         </header>
 
         <div class="admin-container">
-            <button class="btn-clear" onclick="clearAllQueues()">ล้างข้อมูลคิวทั้งหมด</button>
+            <div class="top-actions-container">
+                <button class="btn-clear" onclick="clearAllQueues()">ล้างข้อมูลคิวทั้งหมด</button>
+                <button id="btn-toggle-view" class="btn-toggle-view" onclick="toggleQueueView()">แสดงคิวทั้งหมด</button>
+            </div>
             
             <div class="card">
-                <h2>📋รายการคิวรถขนส่ง</h2>
+                <h2 id="panel-title">📋 รายการคิวรถขนส่ง (เฉพาะคิวค้าง)</h2>
                 
                 <div id="mobile-queue-cards" class="queue-cards-container">
                     <p style="text-align:center; color:#888; padding:1rem;">กำลังโหลดข้อมูล...</p>
@@ -150,37 +165,38 @@
 
         let previousQueuesCount = -1; // ใช้เก็บจำนวนคิวรอบก่อนหน้าเพื่อเปรียบเทียบ
         let previousQueuesList = [];  // ใช้เก็บรายชื่อคิวรอบก่อนหน้า
+        let showAllQueues = false;     // สเตทสำหรับเลือกดู คิวทั้งหมด หรือ คิวปัจจุบัน
 
-        // 🎵 สร้างเสียงแจ้งเตือนแบบอิเล็กทรอนิกส์ (Beep Alert) โดยไม่ต้องพึ่งพาไฟล์เสียงภายนอก
+        // 🎵 ฟังก์ชันสร้างเสียงแจ้งเตือนเวอร์ชันปรับปรุง (เพิ่มความดังและคมชัดขึ้น)
         function playNotificationSound() {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 
-                // เสียงที่ 1 (ปิ๊ง)
+                // เสียงที่ 1 (ปิ๊ง - โน้ตสูงและคมชัด)
                 const osc1 = audioCtx.createOscillator();
                 const gain1 = audioCtx.createGain();
-                osc1.type = 'sine';
-                osc1.frequency.setValueAtTime(587.33, audioCtx.currentTime); // โน้ต D5
-                gain1.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                osc1.type = 'triangle'; // เปลี่ยนเป็นแบบ triangle เพื่อให้เสียงหนาและดังขึ้น
+                osc1.frequency.setValueAtTime(659.25, audioCtx.currentTime); // โน้ต E5 (ใสและเด่นชัดขึ้น)
+                gain1.gain.setValueAtTime(0.6, audioCtx.currentTime); // เพิ่มระดับเสียงความดังเป็น 0.6
+                gain1.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
                 osc1.connect(gain1);
                 gain1.connect(audioCtx.destination);
                 osc1.start();
-                osc1.stop(audioCtx.currentTime + 0.15);
+                osc1.stop(audioCtx.currentTime + 0.2);
 
-                // เสียงที่ 2 (ป่อง) ถัดมาเล็กน้อย
+                // เสียงที่ 2 (ป่อง - เว้นจังหวะให้กระแทกหูขึ้น)
                 setTimeout(() => {
                     const osc2 = audioCtx.createOscillator();
                     const gain2 = audioCtx.createGain();
-                    osc2.type = 'sine';
-                    osc2.frequency.setValueAtTime(880, audioCtx.currentTime); // โน้ต A5
-                    gain2.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                    gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                    osc2.type = 'triangle';
+                    osc2.frequency.setValueAtTime(987.77, audioCtx.currentTime); // โน้ต B5
+                    gain2.gain.setValueAtTime(0.6, audioCtx.currentTime); // เพิ่มระดับเสียงความดังเป็น 0.6
+                    gain2.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
                     osc2.connect(gain2);
                     gain2.connect(audioCtx.destination);
                     osc2.start();
-                    osc2.stop(audioCtx.currentTime + 0.3);
-                }, 120);
+                    osc2.stop(audioCtx.currentTime + 0.35);
+                }, 140);
             } catch (e) {
                 console.error("Audio error:", e);
             }
@@ -201,30 +217,46 @@
             }, 4000);
         }
 
+        function toggleQueueView() {
+            showAllQueues = !showAllQueues;
+            const btn = document.getElementById('btn-toggle-view');
+            const title = document.getElementById('panel-title');
+            
+            if (showAllQueues) {
+                btn.innerText = "แสดงเฉพาะคิวคงค้าง";
+                btn.classList.add('active');
+                title.innerText = "📋 รายการคิวรถขนส่ง (คิวทั้งหมด)";
+                showToast("กำลังแสดงคิวทั้งหมดรวมคิวที่เสร็จสิ้น/ยกเลิก");
+            } else {
+                btn.innerText = "แสดงคิวทั้งหมด";
+                btn.classList.remove('active');
+                title.innerText = "📋 รายการคิวรถขนส่ง (คิวคงค้าง)";
+                showToast("กำลังแสดงเฉพาะคิวที่ยังค้างอยู่ในระบบ");
+            }
+            fetchData();
+        }
+
         function fetchData() {
             if (sessionStorage.getItem('isAdmin') !== 'true') return;
 
             fetch(GOOGLE_SCRIPT_URL)
             .then(res => res.json())
             .then(data => {
-                // คัดกรองเฉพาะคิวที่ยังไม่เสร็จสิ้นหรือยกเลิก
+                // คัดกรองคิวที่ยังไม่เสร็จสิ้นเพื่อเอาไว้ใช้ตรวจสอบคิวใหม่
                 const activeQueues = data.queues.filter(q => q.status !== 'done' && q.status !== 'cancel' && q["สถานะคิว"] !== 'done' && q["สถานะคิว"] !== 'cancel');
                 
                 // 🔔 ระบบตรวจสอบผู้ลงทะเบียนรายใหม่
                 if (previousQueuesCount !== -1) {
-                    // วิธีเช็ก: ดูว่ามีคิวไหนในรอบนี้ ที่รอบก่อนหน้านี้ไม่มีอยู่
                     const newRegistrations = activeQueues.filter(currentQ => {
                         const currentNum = currentQ.queue_number || currentQ["คิว"];
                         return !previousQueuesList.some(prevQ => (prevQ.queue_number || prevQ["คิว"]) === currentNum);
                     });
 
                     if (newRegistrations.length > 0) {
-                        // ดึงข้อมูลคิวล่าสุดที่เข้ามา
                         const latestQ = newRegistrations[newRegistrations.length - 1];
                         const qNum = latestQ.queue_number || latestQ["คิว"] || "ใหม่";
                         const qName = latestQ.fullname || latestQ["ชื่อ-นามสกุล"] || "ผู้ใช้บริการ";
                         
-                        // ส่งสัญญาณแจ้งเตือนแอดมิน
                         playNotificationSound();
                         showToast(`🔔 มีผู้จองคิวใหม่เข้ามา! หมายเลข: ${qNum} (${qName})`, true);
                     }
@@ -234,7 +266,12 @@
                 previousQueuesCount = activeQueues.length;
                 previousQueuesList = activeQueues;
 
-                renderAdminUI(activeQueues);
+                // เลือกชุดข้อมูลที่จะนำไปเรนเดอร์ตามสเตทของปุ่ม
+                if (showAllQueues) {
+                    renderAdminUI(data.queues); // คิวทั้งหมด
+                } else {
+                    renderAdminUI(activeQueues); // เฉพาะคิวที่ค้างอยู่
+                }
             })
             .catch(err => console.error("Error connecting server:", err));
         }
@@ -244,9 +281,9 @@
             const pcTbody = document.getElementById('pc-queue-tbody');
 
             if (queues.length === 0) {
-                const emptyHTML = `<div style="text-align:center; color:#888; padding:2rem 0; width:100%;">ไม่มีรายการคิวคงค้างในขณะนี้</div>`;
+                const emptyHTML = `<div style="text-align:center; color:#888; padding:2rem 0; width:100%;">ไม่มีรายการคิวแสดงในขณะนี้</div>`;
                 mobileContainer.innerHTML = emptyHTML;
-                pcTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#888; padding:1.5rem;">ไม่มีรายการคิวคงค้างในขณะนี้</td></tr>`;
+                pcTbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:#888; padding:1.5rem;">ไม่มีรายการคิวแสดงในขณะนี้</td></tr>`;
                 return;
             }
 
@@ -264,11 +301,27 @@
                 const quantity    = q.quantity || q["จำนวนสินค้า"] || "";
                 const currentStatus = q.status || q["สถานะคิว"] || "waiting";
 
-                const isServing = currentStatus === 'serving';
-                const statusLabel = isServing ? 'กำลังบริการ' : 'รอเรียกคิว';
-                const badgeClass = isServing ? 'badge-serving' : 'badge-waiting';
+                let statusLabel = 'รอเรียกคิว';
+                let badgeClass = 'badge-waiting';
+                let rowModifierClass = '';
 
-                const actionsHTML = `
+                if (currentStatus === 'serving') {
+                    statusLabel = 'กำลังบริการ';
+                    badgeClass = 'badge-serving';
+                    rowModifierClass = 'serving';
+                } else if (currentStatus === 'done') {
+                    statusLabel = 'เสร็จสิ้น';
+                    badgeClass = 'badge-done';
+                    rowModifierClass = 'done';
+                } else if (currentStatus === 'cancel') {
+                    statusLabel = 'ยกเลิก';
+                    badgeClass = 'badge-cancel';
+                    rowModifierClass = 'cancel';
+                }
+
+                // ซ่อนปุ่มจัดการถ้าสถานะคือเสร็จสิ้นหรือยกเลิกแล้ว
+                const isFinished = currentStatus === 'done' || currentStatus === 'cancel';
+                const actionsHTML = isFinished ? `<span style="color:#888; font-size:0.85rem;">สิ้นสุดขั้นตอนแล้ว</span>` : `
                     <button class="btn-act btn-call" onclick="controlQueue('${q.id}', 'call')">เรียกคิว</button>
                     <button class="btn-act btn-done" onclick="controlQueue('${q.id}', 'done')">เสร็จสิ้น</button>
                     <button class="btn-act btn-move" onclick="controlQueue('${q.id}', 'move-end')">ย้ายท้าย</button>
@@ -277,7 +330,7 @@
 
                 // --- เวอร์ชันมือถือ ---
                 const card = document.createElement('div');
-                card.className = `queue-item-card ${isServing ? 'serving' : ''}`;
+                card.className = `queue-item-card ${rowModifierClass}`;
                 card.innerHTML = `
                     <div class="card-row-header">
                         <span class="card-q-num">${queueNumber}</span>
@@ -295,7 +348,7 @@
 
                 // --- เวอร์ชันจอคอมพิวเตอร์ ---
                 const tr = document.createElement('tr');
-                if (isServing) tr.className = "tr-serving";
+                if (rowModifierClass) tr.className = `tr-${rowModifierClass}`;
                 tr.innerHTML = `
                     <td style="font-size:1.2rem; font-weight:bold; color:var(--primary-color);">${queueNumber}</td>
                     <td><b>${fullname}</b><br><span style="font-size:0.8rem; color:#666;">${company}</span></td>
@@ -339,7 +392,6 @@
                     body: JSON.stringify({ action: 'clear-all' })
                 }).then(() => {
                     showToast("🧹 ล้างคิวทั้งหมดสำเร็จ!");
-                    // รีเซ็ตตัวแปรเช็กคิวใหม่
                     previousQueuesCount = 0;
                     previousQueuesList = [];
                     setTimeout(() => { fetchData(); }, 1000);
